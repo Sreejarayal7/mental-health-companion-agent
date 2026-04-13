@@ -1,0 +1,12 @@
+streamlit
+langchain
+langchain-community
+langchain-openai
+openai
+nltk
+vaderSentiment
+text2emotion
+chromadb
+sentence-transformers
+plotly
+python-dotenv
