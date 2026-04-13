@@ -1,8 +1,5 @@
 streamlit
-langchain
-langchain-community
-langchain-openai
-openai
+langchain-core
 nltk
 vaderSentiment
 text2emotion
@@ -10,3 +7,6 @@ chromadb
 sentence-transformers
 plotly
 python-dotenv
+groq
+google-generativeai
+pandas
