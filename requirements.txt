@@ -10,3 +10,5 @@ python-dotenv
 groq
 google-generativeai
 pandas
+transformers
+torch

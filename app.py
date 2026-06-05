@@ -70,16 +70,40 @@ if user_input:
         with st.spinner("Thinking..."):
             result = analyze(user_input)
             emotion = result['dominant_emotion']
+            emotion_group = result.get('emotion_group', emotion)
+            top_emotions = result.get('top_emotions_str', emotion)
             sentiment = result['sentiment']['label']
             compound = result['sentiment']['scores']['compound']
+
             memories = get_relevant_memories(user_input)
             memory_text = "\n".join(memories) if memories else "No previous entries yet."
-            save_entry(user_input, sentiment, emotion, compound)
-            reply = get_response(emotion, sentiment, memory_text, user_input)
 
+            save_entry(user_input, sentiment, emotion_group, compound)
+            reply = get_response(top_emotions, sentiment, memory_text, user_input)
+
+        # Show response
         with st.chat_message("assistant"):
             st.markdown(reply)
         st.session_state.messages.append({"role": "assistant", "content": reply})
+
+        # Show emotion analysis in expander
+        with st.expander("🧠 Emotion Analysis"):
+            col1, col2 = st.columns(2)
+            with col1:
+                compound = result['sentiment']['scores']['compound']
+                sentiment_label = result['sentiment']['label']
+                color = "#1D9E75" if sentiment_label == "positive" else "#D85A30" if sentiment_label == "negative" else "#888780"
+                st.markdown(f"**Sentiment:** <span style='color:{color}'>{sentiment_label}</span>",
+            unsafe_allow_html=True)
+                st.markdown(f"**Mood Score:** `{compound:.2f}`")
+                st.markdown(f"**Dominant Emotion:** `{emotion}`")
+                st.markdown(f"**Emotion Group:** `{emotion_group}`")
+            with col2:
+                st.markdown("**Top Emotions:**")
+                emotions = result['emotions']
+                top5 = list(emotions.items())[:5]
+                for em, score in top5:
+                    st.progress(score, text=f"{em}: {score:.1%}")
 
 st.sidebar.title("About")
 st.sidebar.info(
