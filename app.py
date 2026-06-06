@@ -5,6 +5,7 @@ from groq import Groq
 from utils import analyze
 from crisis import check_crisis, get_crisis_message
 from memory import save_entry, get_relevant_memories
+from anomaly import detect_anomalies, get_anomaly_message
 
 load_dotenv(override=True)
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -81,16 +82,38 @@ if user_input:
             memory_text = "\n".join(memories) if memories else "No previous entries yet."
 
             save_entry(user_input, sentiment, emotion_group, compound)
+
+            # Anomaly detection — check mood patterns
+            anomaly_report = detect_anomalies(compound, sentiment)
+            anomaly_message = get_anomaly_message(anomaly_report)
             stream = get_response(top_emotions, sentiment, memory_text, user_input)
 
             # Stream response word by word — exactly like ChatGPT
+            # Show anomaly warning FIRST if detected
+            if anomaly_message:
+                with st.chat_message("assistant"):
+                    st.warning(anomaly_message)
+                st.session_state.messages.append({
+                    "role": "assistant", "content": anomaly_message
+                })
+
+            # Stream normal response word by word
             with st.chat_message("assistant"):
                 reply = st.write_stream(
-                    (chunk.choices[0].delta.content
-                     for chunk in stream
-                     if getattr(chunk.choices[0].delta, 'content', None) is not None)
+                    chunk.choices[0].delta.content or ""
+                    for chunk in stream
+                    if chunk.choices[0].delta.content is not None
                 )
             st.session_state.messages.append({"role": "assistant", "content": reply})
+
+            # Show anomaly badge in sidebar if detected
+            if anomaly_report["detected"]:
+                severity = anomaly_report["severity"]
+                color    = "🔴" if severity == "high" else "🟡"
+                st.sidebar.warning(
+                    f"{color} **Mood Alert Detected**\n\n"
+                    + "\n".join([a.split("|")[1] for a in anomaly_report["alerts"]])
+                )
 
             # Show emotion analysis in expander
             with st.expander("🧠 Emotion Analysis"):
