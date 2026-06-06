@@ -31,12 +31,14 @@ Respond with:
 
 Keep your response under 150 words. Be human, not clinical.
 """
-    response = client.chat.completions.create(
+    # stream=True returns a generator — tokens arrive word by word
+    stream = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=300
+        max_tokens=300,
+        stream=True
     )
-    return response.choices[0].message.content
+    return stream
 
 st.set_page_config(
     page_title="Mental Health Companion",
@@ -67,7 +69,7 @@ if user_input:
             st.error(crisis_msg)
         st.session_state.messages.append({"role": "assistant", "content": crisis_msg})
     else:
-        with st.spinner("Thinking..."):
+        with st.spinner("Analysing your feelings..."):
             result = analyze(user_input)
             emotion = result['dominant_emotion']
             emotion_group = result.get('emotion_group', emotion)
@@ -79,31 +81,34 @@ if user_input:
             memory_text = "\n".join(memories) if memories else "No previous entries yet."
 
             save_entry(user_input, sentiment, emotion_group, compound)
-            reply = get_response(top_emotions, sentiment, memory_text, user_input)
+            stream = get_response(top_emotions, sentiment, memory_text, user_input)
 
-        # Show response
-        with st.chat_message("assistant"):
-            st.markdown(reply)
-        st.session_state.messages.append({"role": "assistant", "content": reply})
+            # Stream response word by word — exactly like ChatGPT
+            with st.chat_message("assistant"):
+                reply = st.write_stream(
+                    (chunk.choices[0].delta.content
+                     for chunk in stream
+                     if getattr(chunk.choices[0].delta, 'content', None) is not None)
+                )
+            st.session_state.messages.append({"role": "assistant", "content": reply})
 
-        # Show emotion analysis in expander
-        with st.expander("🧠 Emotion Analysis"):
-            col1, col2 = st.columns(2)
-            with col1:
-                compound = result['sentiment']['scores']['compound']
-                sentiment_label = result['sentiment']['label']
-                color = "#1D9E75" if sentiment_label == "positive" else "#D85A30" if sentiment_label == "negative" else "#888780"
-                st.markdown(f"**Sentiment:** <span style='color:{color}'>{sentiment_label}</span>",
-            unsafe_allow_html=True)
-                st.markdown(f"**Mood Score:** `{compound:.2f}`")
-                st.markdown(f"**Dominant Emotion:** `{emotion}`")
-                st.markdown(f"**Emotion Group:** `{emotion_group}`")
-            with col2:
-                st.markdown("**Top Emotions:**")
-                emotions = result['emotions']
-                top5 = list(emotions.items())[:5]
-                for em, score in top5:
-                    st.progress(score, text=f"{em}: {score:.1%}")
+            # Show emotion analysis in expander
+            with st.expander("🧠 Emotion Analysis"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    compound = result['sentiment']['scores']['compound']
+                    sentiment_label = result['sentiment']['label']
+                    color = "#1D9E75" if sentiment_label == "positive" else "#D85A30" if sentiment_label == "negative" else "#888780"
+                    st.markdown(f"**Sentiment:** <span style='color:{color}'>{sentiment_label}</span>", unsafe_allow_html=True)
+                    st.markdown(f"**Mood Score:** `{compound:.2f}`")
+                    st.markdown(f"**Dominant Emotion:** `{emotion}`")
+                    st.markdown(f"**Emotion Group:** `{emotion_group}`")
+                with col2:
+                    st.markdown("**Top Emotions:**")
+                    emotions = result.get('emotions', {})
+                    top5 = list(emotions.items())[:5]
+                    for em, score in top5:
+                        st.progress(score, text=f"{em}: {score:.1%}")
 
 st.sidebar.title("About")
 st.sidebar.info(
