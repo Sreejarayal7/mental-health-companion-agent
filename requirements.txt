@@ -13,3 +13,7 @@ pandas
 transformers
 torch
 reportlab
+openai-whisper
+sounddevice
+soundfile
+numpy

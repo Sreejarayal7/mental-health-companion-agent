@@ -10,6 +10,7 @@ from anomaly import detect_anomalies, get_anomaly_message
 from coping_toolkit import get_coping_techniques, format_techniques_for_display, format_techniques_for_prompt
 from therapist_notes import create_session_note
 from quotes import get_daily_quote, get_last_mood_from_db
+from voice_recorder import record_and_transcribe
 
 load_dotenv(override=True)
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -66,6 +67,10 @@ if "last_emotion_data" not in st.session_state:
 if "daily_quote" not in st.session_state:
     sentiment, emotion = get_last_mood_from_db()
     st.session_state.daily_quote = get_daily_quote(sentiment, emotion)
+if "recording" not in st.session_state:
+    st.session_state.recording = False
+if "transcribed_text" not in st.session_state:
+    st.session_state.transcribed_text = ""
 
 # ── Chat history ─────────────────────────────────
 for message in st.session_state.messages:
@@ -74,8 +79,52 @@ for message in st.session_state.messages:
 
 techniques_display = []
 
+# ── Voice Journal Section ────────────────────────
+with st.expander("🎙️ Voice Journal — speak instead of type"):
+    st.markdown("*Click record, speak your feelings, then submit.*")
+
+    col_rec, col_dur = st.columns([2, 1])
+    with col_dur:
+        duration = st.slider("Max duration (seconds)", 5, 60, 15, key="dur")
+
+    with col_rec:
+        if st.button("🎙️ Start Recording", use_container_width=True,
+                     type="primary"):
+            with st.spinner(f"🔴 Recording for up to {duration} seconds... speak now!"):
+                text, error = record_and_transcribe(duration)
+            if error:
+                st.error(f"❌ {error}")
+            elif text:
+                st.session_state.transcribed_text = text
+                st.success("✅ Recording complete!")
+
+    if st.session_state.transcribed_text:
+        st.markdown("**📝 Transcribed text:**")
+        edited = st.text_area(
+            "Edit if needed before submitting:",
+            value=st.session_state.transcribed_text,
+            height=100,
+            key="voice_edit"
+        )
+        col_sub, col_clr = st.columns(2)
+        with col_sub:
+            if st.button("✅ Submit this entry", use_container_width=True,
+                         type="primary"):
+                st.session_state.voice_submit = edited
+                st.session_state.transcribed_text = ""
+                st.rerun()
+        with col_clr:
+            if st.button("🗑️ Clear", use_container_width=True):
+                st.session_state.transcribed_text = ""
+                st.rerun()
+
 # ── Chat input ───────────────────────────────────
 user_input = st.chat_input("How are you feeling today? Write anything...")
+
+# Handle voice submission
+if "voice_submit" in st.session_state and st.session_state.voice_submit:
+    user_input = st.session_state.voice_submit
+    st.session_state.voice_submit = ""
 
 if user_input:
     with st.chat_message("user"):
