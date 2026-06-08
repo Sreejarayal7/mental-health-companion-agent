@@ -12,3 +12,4 @@ google-generativeai
 pandas
 transformers
 torch
+reportlab
