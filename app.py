@@ -11,15 +11,18 @@ from coping_toolkit import get_coping_techniques, format_techniques_for_display,
 from therapist_notes import create_session_note
 from quotes import get_daily_quote, get_last_mood_from_db
 from voice_recorder import record_and_transcribe
+from language_support import detect_language, get_language_info, get_language_instruction, translate_ui_text
 
 load_dotenv(override=True)
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-def get_response(emotion, sentiment, memories, user_input, coping_techniques=""):
+def get_response(emotion, sentiment, memories, user_input,
+                 coping_techniques="", lang_instruction=""):
     prompt = f"""
 You are a warm, empathetic mental health companion. You are NOT a therapist.
 Your job is to listen, validate feelings, and suggest healthy coping strategies.
 Always recommend professional help for serious issues.
+{lang_instruction}
 
 Current emotion detected: {emotion}
 Current sentiment: {sentiment}
@@ -56,10 +59,7 @@ st.set_page_config(
     layout="centered"
 )
 
-st.title("💚 Mental Health Companion")
-st.caption("A safe space to express how you feel. Your entries are private and stored locally.")
-
-# ── Session state ────────────────────────────────
+# ── Session state — MUST be before any st.session_state reads ──
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_emotion_data" not in st.session_state:
@@ -71,6 +71,22 @@ if "recording" not in st.session_state:
     st.session_state.recording = False
 if "transcribed_text" not in st.session_state:
     st.session_state.transcribed_text = ""
+if "detected_language" not in st.session_state:
+    st.session_state.detected_language = "en"
+if "voice_submit" not in st.session_state:
+    st.session_state.voice_submit = ""
+
+# ── Title ────────────────────────────────────────
+st.title("💚 Mental Health Companion")
+st.caption("A safe space to express how you feel. Your entries are private and stored locally.")
+
+# Show detected language banner — safe now because session state is initialised
+if st.session_state.detected_language != "en":
+    lang_info = get_language_info(st.session_state.detected_language)
+    st.info(
+        f"{lang_info['flag']} **{lang_info['name']} detected** — "
+        f"responding in {lang_info['name']}"
+    )
 
 # ── Chat history ─────────────────────────────────
 for message in st.session_state.messages:
@@ -122,7 +138,7 @@ with st.expander("🎙️ Voice Journal — speak instead of type"):
 user_input = st.chat_input("How are you feeling today? Write anything...")
 
 # Handle voice submission
-if "voice_submit" in st.session_state and st.session_state.voice_submit:
+if st.session_state.voice_submit:
     user_input = st.session_state.voice_submit
     st.session_state.voice_submit = ""
 
@@ -132,21 +148,32 @@ if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
 
     if check_crisis(user_input):
-        crisis_msg = "I'm really concerned about you right now. Please reach out immediately:\n\n" + get_crisis_message()
+        crisis_msg = (
+            "I'm really concerned about you right now. "
+            "Please reach out immediately:\n\n" + get_crisis_message()
+        )
         with st.chat_message("assistant"):
             st.error(crisis_msg)
-        st.session_state.messages.append({"role": "assistant", "content": crisis_msg})
+        st.session_state.messages.append(
+            {"role": "assistant", "content": crisis_msg})
     else:
-        with st.spinner("Analysing your feelings..."):
-            result       = analyze(user_input)
-            emotion      = result['dominant_emotion']
-            emotion_group = result.get('emotion_group', emotion)
-            top_emotions = result.get('top_emotions_str', emotion)
-            sentiment    = result['sentiment']['label']
-            compound     = result['sentiment']['scores']['compound']
+        # ── Detect language ──────────────────────
+        lang_code        = detect_language(user_input)
+        st.session_state.detected_language = lang_code
+        lang_info        = get_language_info(lang_code)
+        lang_instruction = get_language_instruction(lang_code)
+        ui_text          = translate_ui_text(lang_code)
 
-            memories     = get_relevant_memories(user_input)
-            memory_text  = "\n".join(memories) if memories else "No previous entries yet."
+        with st.spinner(ui_text["thinking"]):
+            result        = analyze(user_input, lang_code)
+            emotion       = result['dominant_emotion']
+            emotion_group = result.get('emotion_group', emotion)
+            top_emotions  = result.get('top_emotions_str', emotion)
+            sentiment     = result['sentiment']['label']
+            compound      = result['sentiment']['scores']['compound']
+
+            memories    = get_relevant_memories(user_input)
+            memory_text = "\n".join(memories) if memories else "No previous entries yet."
 
             save_entry(user_input, sentiment, emotion_group, compound)
             st.session_state.last_emotion_data = result
@@ -165,26 +192,28 @@ if user_input:
         techniques_text    = format_techniques_for_prompt(techniques)
         techniques_display = format_techniques_for_display(techniques)
 
-        # ── Get LLM stream ───────────────────────
-        stream = get_response(top_emotions, sentiment, memory_text,
-                              user_input, techniques_text)
+        # ── LLM stream ───────────────────────────
+        stream = get_response(
+            top_emotions, sentiment, memory_text,
+            user_input, techniques_text, lang_instruction
+        )
 
-        # ── Show anomaly warning first ───────────
+        # ── Anomaly warning first ────────────────
         if anomaly_message:
             with st.chat_message("assistant"):
                 st.warning(anomaly_message)
-            st.session_state.messages.append({
-                "role": "assistant", "content": anomaly_message
-            })
+            st.session_state.messages.append(
+                {"role": "assistant", "content": anomaly_message})
 
-        # ── Stream response word by word ─────────
+        # ── Streaming response ───────────────────
         with st.chat_message("assistant"):
             reply = st.write_stream(
                 chunk.choices[0].delta.content or ""
                 for chunk in stream
                 if chunk.choices[0].delta.content is not None
             )
-        st.session_state.messages.append({"role": "assistant", "content": reply})
+        st.session_state.messages.append(
+            {"role": "assistant", "content": reply})
 
         # ── Sidebar mood alert ───────────────────
         if anomaly_report["detected"]:
@@ -210,6 +239,12 @@ if user_input:
                 st.markdown(f"**Mood Score:** `{compound:.2f}`")
                 st.markdown(f"**Dominant Emotion:** `{emotion}`")
                 st.markdown(f"**Emotion Group:** `{emotion_group}`")
+                detected_lang = get_language_info(
+                    st.session_state.detected_language)
+                st.markdown(
+                    f"**Language:** {detected_lang['flag']} "
+                    f"`{detected_lang['name']}`"
+                )
             with col2:
                 st.markdown("**Top Emotions:**")
                 top5 = list(result.get('emotions', {}).items())[:5]
@@ -219,7 +254,8 @@ if user_input:
         # ── Coping toolkit expander ──────────────
         if techniques_display:
             with st.expander("🛠️ Your Personalised Coping Toolkit"):
-                st.markdown("*Curated techniques matched to how you're feeling:*")
+                st.markdown(
+                    "*Curated techniques matched to how you're feeling:*")
                 for i, tech in enumerate(techniques_display, 1):
                     st.markdown(f"**{i}. {tech['name']}**")
                     st.markdown(f"{tech['desc']}")
@@ -297,8 +333,10 @@ if st.sidebar.button("📄 Generate Session Note", use_container_width=True):
                         mime="application/pdf",
                         use_container_width=True
                     )
-                    st.markdown(f"**Risk:** {note_data.get('risk_level','low').upper()}")
-                    st.markdown(f"**Session:** {note_data.get('session_rating','neutral').upper()}")
+                    st.markdown(
+                        f"**Risk:** {note_data.get('risk_level','low').upper()}")
+                    st.markdown(
+                        f"**Session:** {note_data.get('session_rating','neutral').upper()}")
                     st.markdown("**Key Themes:**")
                     for theme in note_data.get('key_themes', [])[:3]:
                         st.markdown(f"• {theme}")

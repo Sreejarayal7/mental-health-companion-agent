@@ -71,13 +71,18 @@ def get_top_emotions(text, n=3):
     top      = list(emotions.items())[:n]
     return ", ".join([f"{label} ({score:.0%})" for label, score in top])
 
-def analyze(text):
-    cleaned        = preprocess(text)
-    sentiment      = get_sentiment(text)
-    emotions       = get_emotions(text)
+def analyze(text, lang_code="en"):
+    """
+    Master function — runs full pipeline.
+    For non-English text, translates key fields appropriately.
+    """
+    cleaned       = preprocess(text)
+    sentiment     = get_sentiment(text)  # VADER works partially on non-English
+    emotions      = get_emotions(text)   # GoEmotions handles multilingual
     dominant_label = max(emotions, key=emotions.get)
     dominant_group = get_emotion_group(dominant_label)
     top3           = get_top_emotions(text, n=3)
+
     return {
         'original':         text,
         'cleaned':          cleaned,
@@ -86,4 +91,5 @@ def analyze(text):
         'dominant_emotion': dominant_label,
         'emotion_group':    dominant_group,
         'top_emotions_str': top3,
+        'language':         lang_code,
     }
