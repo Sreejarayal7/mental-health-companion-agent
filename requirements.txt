@@ -12,8 +12,11 @@ google-generativeai
 pandas
 transformers
 torch
-reportlab
 openai-whisper
 sounddevice
 soundfile
 numpy
+langdetect
+bcrypt
+PyJWT
+reportlab

@@ -33,29 +33,36 @@ def init_db():
     conn.commit()
     conn.close()
 
-def save_entry(text, sentiment, dominant_emotion, compound_score):
+def save_entry(text, sentiment, dominant_emotion, compound_score, user_id=0):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO entries (text, sentiment, dominant_emotion, compound_score, timestamp)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (text, sentiment, dominant_emotion, compound_score, timestamp))
+    cursor.execute(
+        "INSERT INTO entries (text,sentiment,dominant_emotion,compound_score,timestamp,user_id)"
+        " VALUES (?,?,?,?,?,?)",
+        (text, sentiment, dominant_emotion, compound_score, timestamp, user_id)
+    )
     entry_id = cursor.lastrowid
     conn.commit()
     conn.close()
     collection.add(
-        documents=[text],
-        ids=[str(entry_id)],
-        metadatas=[{"timestamp": timestamp, "sentiment": sentiment}]
+        documents=[text], ids=[str(entry_id)],
+        metadatas=[{"timestamp": timestamp, "sentiment": sentiment,
+                    "user_id": str(user_id)}]
     )
     return entry_id
 
-def get_relevant_memories(text, n=3):
+def get_relevant_memories(text, n=3, user_id=0):
     try:
+        # Filter by user_id in metadata
+        where = {"user_id": str(user_id)} if user_id else None
+        count = collection.count()
+        if count == 0:
+            return []
         results = collection.query(
             query_texts=[text],
-            n_results=min(n, collection.count())
+            n_results=min(n, count),
+            where=where if where else None
         )
         if results and results['documents'][0]:
             memories = []
@@ -66,10 +73,16 @@ def get_relevant_memories(text, n=3):
     except:
         return []
 
-def get_all_entries():
+def get_all_entries(user_id=0):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM entries ORDER BY timestamp DESC')
+    if user_id:
+        cursor.execute(
+            'SELECT * FROM entries WHERE user_id = ? ORDER BY timestamp DESC',
+            (user_id,)
+        )
+    else:
+        cursor.execute('SELECT * FROM entries ORDER BY timestamp DESC')
     rows = cursor.fetchall()
     conn.close()
     return rows

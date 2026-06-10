@@ -10,16 +10,17 @@ st.set_page_config(page_title="Mood Dashboard", page_icon="📊")
 st.title("📊 Mood Dashboard")
 st.caption("Your emotional journey over time.")
 
-entries = get_all_entries()
+user_id = st.session_state.get("user_id", 0)
+entries = get_all_entries(user_id=user_id)
 
 if not entries:
     st.info("No journal entries yet. Go to the main page and write something!")
 else:
     # ── Build DataFrame ──────────────────────────
     df = pd.DataFrame(entries, columns=[
-        'id', 'text', 'sentiment', 'dominant_emotion',
-        'compound_score', 'timestamp'
-    ])
+    'id', 'text', 'sentiment', 'dominant_emotion',
+    'compound_score', 'timestamp', 'user_id'
+])
     df['timestamp']     = pd.to_datetime(df['timestamp'])
     df['compound_score'] = df['compound_score'].astype(float)
     df = df.sort_values('timestamp')

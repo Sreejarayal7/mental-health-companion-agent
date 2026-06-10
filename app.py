@@ -12,6 +12,10 @@ from therapist_notes import create_session_note
 from quotes import get_daily_quote, get_last_mood_from_db
 from voice_recorder import record_and_transcribe
 from language_support import detect_language, get_language_info, get_language_instruction, translate_ui_text
+from auth import init_users_table
+from login_page import show_login_page, is_authenticated
+
+init_users_table()
 
 load_dotenv(override=True)
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -58,6 +62,14 @@ st.set_page_config(
     page_icon="💚",
     layout="centered"
 )
+# ── Authentication gate ──────────────────────────
+if not is_authenticated():
+    show_login_page()
+    st.stop()  # Stop rendering rest of app if not logged in
+
+# User is authenticated from here
+user_id   = st.session_state.get("user_id", 0)
+user_name = st.session_state.get("user_name", "Friend")
 
 # ── Session state — MUST be before any st.session_state reads ──
 if "messages" not in st.session_state:
@@ -78,7 +90,7 @@ if "voice_submit" not in st.session_state:
 
 # ── Title ────────────────────────────────────────
 st.title("💚 Mental Health Companion")
-st.caption("A safe space to express how you feel. Your entries are private and stored locally.")
+st.caption(f"Welcome back, {user_name}! Your entries are private and stored locally.")
 
 # Show detected language banner — safe now because session state is initialised
 if st.session_state.detected_language != "en":
@@ -172,10 +184,11 @@ if user_input:
             sentiment     = result['sentiment']['label']
             compound      = result['sentiment']['scores']['compound']
 
-            memories    = get_relevant_memories(user_input)
+            memories    = get_relevant_memories(user_input, user_id=user_id)
             memory_text = "\n".join(memories) if memories else "No previous entries yet."
 
-            save_entry(user_input, sentiment, emotion_group, compound)
+            save_entry(user_input, sentiment, emotion_group, compound,
+                       user_id=user_id)
             st.session_state.last_emotion_data = result
 
             # Refresh quote to match new mood
@@ -341,6 +354,21 @@ if st.sidebar.button("📄 Generate Session Note", use_container_width=True):
                     for theme in note_data.get('key_themes', [])[:3]:
                         st.markdown(f"• {theme}")
 
+st.sidebar.markdown("---")
+
+# ── User profile ─────────────────────────────────
+st.sidebar.markdown("---")
+st.sidebar.markdown(f"👤 **{user_name}**")
+st.sidebar.markdown(
+    f"<small>{st.session_state.get('user_email','')}</small>",
+    unsafe_allow_html=True
+)
+if st.sidebar.button("🚪 Logout", use_container_width=True):
+    for key in ["token","user_id","user_name","user_email",
+                "messages","last_emotion_data","daily_quote",
+                "detected_language","transcribed_text","voice_submit"]:
+        st.session_state.pop(key, None)
+    st.rerun()
 st.sidebar.markdown("---")
 
 # ── About ────────────────────────────────────────
