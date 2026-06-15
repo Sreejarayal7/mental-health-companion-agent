@@ -10,11 +10,12 @@ from anomaly import detect_anomalies, get_anomaly_message
 from coping_toolkit import get_coping_techniques, format_techniques_for_display, format_techniques_for_prompt
 from therapist_notes import create_session_note
 from quotes import get_daily_quote, get_last_mood_from_db
-from voice_recorder import record_and_transcribe
+from voice_recorder import record_and_transcribe, VOICE_AVAILABLE
 from language_support import detect_language, get_language_info, get_language_instruction, translate_ui_text
 from auth import init_users_table
 from login_page import show_login_page, is_authenticated
 
+# Initialise auth tables
 init_users_table()
 
 load_dotenv(override=True)
@@ -62,12 +63,12 @@ st.set_page_config(
     page_icon="💚",
     layout="centered"
 )
+
 # ── Authentication gate ──────────────────────────
 if not is_authenticated():
     show_login_page()
-    st.stop()  # Stop rendering rest of app if not logged in
+    st.stop()
 
-# User is authenticated from here
 user_id   = st.session_state.get("user_id", 0)
 user_name = st.session_state.get("user_name", "Friend")
 
@@ -92,7 +93,7 @@ if "voice_submit" not in st.session_state:
 st.title("💚 Mental Health Companion")
 st.caption(f"Welcome back, {user_name}! Your entries are private and stored locally.")
 
-# Show detected language banner — safe now because session state is initialised
+# Show detected language banner
 if st.session_state.detected_language != "en":
     lang_info = get_language_info(st.session_state.detected_language)
     st.info(
@@ -109,42 +110,46 @@ techniques_display = []
 
 # ── Voice Journal Section ────────────────────────
 with st.expander("🎙️ Voice Journal — speak instead of type"):
-    st.markdown("*Click record, speak your feelings, then submit.*")
+    if not VOICE_AVAILABLE:
+        st.info("🎙️ Voice journaling is only available when running locally. "
+                "Use text input below instead!")
+    else:
+        st.markdown("*Click record, speak your feelings, then submit.*")
 
-    col_rec, col_dur = st.columns([2, 1])
-    with col_dur:
-        duration = st.slider("Max duration (seconds)", 5, 60, 15, key="dur")
+        col_rec, col_dur = st.columns([2, 1])
+        with col_dur:
+            duration = st.slider("Max duration (seconds)", 5, 60, 15, key="dur")
 
-    with col_rec:
-        if st.button("🎙️ Start Recording", use_container_width=True,
-                     type="primary"):
-            with st.spinner(f"🔴 Recording for up to {duration} seconds... speak now!"):
-                text, error = record_and_transcribe(duration)
-            if error:
-                st.error(f"❌ {error}")
-            elif text:
-                st.session_state.transcribed_text = text
-                st.success("✅ Recording complete!")
-
-    if st.session_state.transcribed_text:
-        st.markdown("**📝 Transcribed text:**")
-        edited = st.text_area(
-            "Edit if needed before submitting:",
-            value=st.session_state.transcribed_text,
-            height=100,
-            key="voice_edit"
-        )
-        col_sub, col_clr = st.columns(2)
-        with col_sub:
-            if st.button("✅ Submit this entry", use_container_width=True,
+        with col_rec:
+            if st.button("🎙️ Start Recording", use_container_width=True,
                          type="primary"):
-                st.session_state.voice_submit = edited
-                st.session_state.transcribed_text = ""
-                st.rerun()
-        with col_clr:
-            if st.button("🗑️ Clear", use_container_width=True):
-                st.session_state.transcribed_text = ""
-                st.rerun()
+                with st.spinner(f"🔴 Recording for up to {duration} seconds... speak now!"):
+                    text, error = record_and_transcribe(duration)
+                if error:
+                    st.error(f"❌ {error}")
+                elif text:
+                    st.session_state.transcribed_text = text
+                    st.success("✅ Recording complete!")
+
+        if st.session_state.transcribed_text:
+            st.markdown("**📝 Transcribed text:**")
+            edited = st.text_area(
+                "Edit if needed before submitting:",
+                value=st.session_state.transcribed_text,
+                height=100,
+                key="voice_edit"
+            )
+            col_sub, col_clr = st.columns(2)
+            with col_sub:
+                if st.button("✅ Submit this entry", use_container_width=True,
+                             type="primary"):
+                    st.session_state.voice_submit = edited
+                    st.session_state.transcribed_text = ""
+                    st.rerun()
+            with col_clr:
+                if st.button("🗑️ Clear", use_container_width=True):
+                    st.session_state.transcribed_text = ""
+                    st.rerun()
 
 # ── Chat input ───────────────────────────────────
 user_input = st.chat_input("How are you feeling today? Write anything...")
@@ -278,6 +283,21 @@ if user_input:
 # SIDEBAR
 # ════════════════════════════════════════════════
 
+# ── User profile ─────────────────────────────────
+st.sidebar.markdown("---")
+st.sidebar.markdown(f"👤 **{user_name}**")
+st.sidebar.markdown(
+    f"<small>{st.session_state.get('user_email','')}</small>",
+    unsafe_allow_html=True
+)
+if st.sidebar.button("🚪 Logout", use_container_width=True):
+    for key in ["token","user_id","user_name","user_email",
+                "messages","last_emotion_data","daily_quote",
+                "detected_language","transcribed_text","voice_submit"]:
+        st.session_state.pop(key, None)
+    st.rerun()
+st.sidebar.markdown("---")
+
 # ── Daily mood-aware quote ───────────────────────
 st.sidebar.markdown("### 💭 Today's Quote")
 
@@ -354,21 +374,6 @@ if st.sidebar.button("📄 Generate Session Note", use_container_width=True):
                     for theme in note_data.get('key_themes', [])[:3]:
                         st.markdown(f"• {theme}")
 
-st.sidebar.markdown("---")
-
-# ── User profile ─────────────────────────────────
-st.sidebar.markdown("---")
-st.sidebar.markdown(f"👤 **{user_name}**")
-st.sidebar.markdown(
-    f"<small>{st.session_state.get('user_email','')}</small>",
-    unsafe_allow_html=True
-)
-if st.sidebar.button("🚪 Logout", use_container_width=True):
-    for key in ["token","user_id","user_name","user_email",
-                "messages","last_emotion_data","daily_quote",
-                "detected_language","transcribed_text","voice_submit"]:
-        st.session_state.pop(key, None)
-    st.rerun()
 st.sidebar.markdown("---")
 
 # ── About ────────────────────────────────────────
